@@ -1,15 +1,14 @@
 #include <Arduino.h>
-#include <EEPROM.h>
 #include "Preferences.h"
-
-#include "Debug.h"
 
 // todo: handle error condition when prefs are too big
 
 // preferences are saved:
 //   tag string (zero terminated), length byte, data bytes (of length given before)
 
-Preferences::Preferences() {
+Preferences::Preferences(uint8_t initVersion) {
+  version = initVersion;
+
   // todo - only read in the bytes that have been used
   for (size_t i = 0; i < sizeof(prefsData); i++) {
     prefsData[i] = EEPROM.read(i);
@@ -132,13 +131,7 @@ void Preferences::saveOut() {
   // todo - only write out the bytes that have changed
   for (size_t i = 0; i < sizeof(prefsData); i++) {
     EEPROM.write(i, prefsData[i]);
-#if 0
-    char dumper[100];
-    sprintf(dumper, "%4d - %c (%2x)", i, prefsData[i], prefsData[i]);
-    DEBUG_LN(dumper);
-#endif
   }
-  DEBUGF("Wrote out prefs of size: %d\n", findTag(endTag) + tagSize(findTag(endTag)));
 }
 
 size_t Preferences::writeTag(size_t offset, tag_t tag, uint8_t size, const uint8_t* data) {
