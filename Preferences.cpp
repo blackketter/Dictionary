@@ -6,7 +6,7 @@
 // preferences are saved:
 //   tag string (zero terminated), length byte, data bytes (of length given before)
 
-Preferences::Preferences(uint8_t initVersion) {
+void Preferences::begin(uint8_t initVersion) {
   version = initVersion;
 
   // todo - only read in the bytes that have been used

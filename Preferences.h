@@ -7,8 +7,8 @@ typedef const char* tag_t;
 
 class Preferences {
   public:
-    Preferences(uint8_t initVersion = 1);  // 1 - default version
 
+    void begin(uint8_t initVersion = 1);  // 1 - default version
     void write(tag_t tag, uint8_t size, const uint8_t* data);
     uint8_t read(tag_t tag, uint8_t size, uint8_t* data);
 
