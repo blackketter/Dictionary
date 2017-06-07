@@ -22,25 +22,35 @@ void Preferences::begin(uint8_t initVersion) {
   }
 }
 
-void Preferences::write(tag_t tag, uint8_t size, const uint8_t* data) {
+bool Preferences::write(tag_t tag, size_t size, const uint8_t* data) {
 
   bool changed = false;
   size_t offset = findTag(tag);
 
   if (offset) {
     // found an old tag
-    if (tagDataSize(offset) == size) {
+    size_t oldDataSize = tagDataSize(offset);
+    if (oldDataSize == size) {
       // same size so we can write in place
       writeTag(offset, tag, size, data);
       changed = true;
     } else {
+      if (((int)remaining() - oldDataSize + size) < 0) {
+        // not enough room to write
+        return false;
+      }
+
       // delete pref if the new size is not the same as the existing one
       deleteTag(offset);
       offset = 0;
       changed = true;
     }
+  } else {
+    if (((int)remaining() - size) < 0) {
+      // not enough room to write
+      return false;
+    }
   }
-
   // if it isn't already written and it has a size, we'll tack it on to the end
   if (!offset && size) {
     // append to the end
@@ -54,15 +64,26 @@ void Preferences::write(tag_t tag, uint8_t size, const uint8_t* data) {
   if (changed) {
     saveOut();
   }
+  return true;
 }
 
-uint8_t Preferences::read(tag_t tag, uint8_t size, uint8_t* data) {
+size_t Preferences::size(tag_t tag) {
+  size_t offset = findTag(tag);
+
+  if (offset) {
+    return tagDataSize(offset);
+  } else {
+    return 0;  // not found
+  }
+}
+
+size_t Preferences::read(tag_t tag, size_t size, uint8_t* data) {
 
   size_t offset = findTag(tag);
 
   if (offset) {
     offset += strlen(tag) + 1;
-    uint8_t readSize = prefsData[offset];
+    size_t readSize = prefsData[offset];
     offset++;
     readSize = min(readSize, size);  // if the sizes don't match, choose the smaller
     memcpy(data, &prefsData[offset], readSize);
@@ -87,8 +108,10 @@ void Preferences::deleteTag(size_t start) {
 
   size_t nextTag = tagSize(start) + start;
 
-  if (nextTag < end) {
-    memcpy(&prefsData[start], &prefsData[nextTag], end - nextTag + tagSize(end));
+  size_t len = end - nextTag + tagSize(end);
+
+  if (nextTag <= end) {
+    memmove(prefsData+start, prefsData+nextTag, len);
   }
 
 }
@@ -126,6 +149,11 @@ size_t Preferences::findTag(tag_t tag) {
   return 0;
 }
 
+size_t Preferences::used() {
+  size_t offset = findTag(endTag);
+  return offset + tagSize(offset);
+}
+
 void Preferences::saveOut() {
   // this is brute force:
   // todo - only write out the bytes that have changed
@@ -134,7 +162,10 @@ void Preferences::saveOut() {
   }
 }
 
-size_t Preferences::writeTag(size_t offset, tag_t tag, uint8_t size, const uint8_t* data) {
+size_t Preferences::writeTag(size_t offset, tag_t tag, size_t size, const uint8_t* data) {
+    if (size > MAX_TAG_SIZE) {
+      return 0;
+    }
     strcpy((char*)&prefsData[offset], tag);
     offset += strlen(tag) + 1;
 
