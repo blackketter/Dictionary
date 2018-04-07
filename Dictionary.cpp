@@ -1,28 +1,12 @@
 #include <Arduino.h>
-#include "Preferences.h"
+#include "Dictionary.h"
 
 // todo: handle error condition when prefs are too big
 
-// preferences are saved:
+// entries are saved:
 //   tag string (zero terminated), length byte, data bytes (of length given before)
 
-void Preferences::begin(uint8_t initVersion) {
-  version = initVersion;
-
-  // todo - only read in the bytes that have been used
-  for (size_t i = 0; i < sizeof(prefsData); i++) {
-    prefsData[i] = EEPROM.read(i);
-  }
-
-  // check if prefs have been initialized
-  if (strcmp((const char*)versionTag, (const char*)prefsData) != 0 ||
-      prefsData[strlen(versionTag) + 1] != sizeof(version) ||
-      prefsData[strlen(versionTag) + 2] != version) {
-    resetPrefs();
-  }
-}
-
-bool Preferences::write(tag_t tag, size_t size, const uint8_t* data) {
+bool Dictionary::write(tag_t tag, size_t size, const uint8_t* data) {
 
   bool changed = false;
   size_t offset = findTag(tag);
@@ -62,12 +46,12 @@ bool Preferences::write(tag_t tag, size_t size, const uint8_t* data) {
 
   // save it out if something's been written
   if (changed) {
-    saveOut();
+    save();
   }
   return true;
 }
 
-size_t Preferences::size(tag_t tag) {
+size_t Dictionary::size(tag_t tag) {
   size_t offset = findTag(tag);
 
   if (offset) {
@@ -77,7 +61,7 @@ size_t Preferences::size(tag_t tag) {
   }
 }
 
-size_t Preferences::read(tag_t tag, size_t size, uint8_t* data) {
+size_t Dictionary::read(tag_t tag, size_t size, uint8_t* data) {
 
   size_t offset = findTag(tag);
 
@@ -94,8 +78,27 @@ size_t Preferences::read(tag_t tag, size_t size, uint8_t* data) {
   }
 }
 
+bool Dictionary::write(String& tag, String& data) {
+  return write(tag.c_str(), data.length()+1, (const uint8_t*)data.c_str());
+}
 
-void Preferences::deleteTag(size_t start) {
+size_t Dictionary::read(String& tag, String& data) {
+  size_t offset = findTag(tag.c_str());
+
+  if (offset) {
+    offset += tag.length() + 1;
+    offset++;
+    data = (const char*) (&prefsData[offset]);
+
+    return data.length();
+  } else {
+    data = "";
+    return 0;  // not found
+  }
+}
+
+
+void Dictionary::deleteTag(size_t start) {
   // delete chosen tag and close the gap
 
   // don't delete the version tag
@@ -116,7 +119,7 @@ void Preferences::deleteTag(size_t start) {
 
 }
 
-size_t Preferences::tagSize(size_t offset) {
+size_t Dictionary::tagSize(size_t offset) {
   size_t endoffset = offset;
   endoffset += strlen((const char*)&prefsData[endoffset]) + 1;
   endoffset += prefsData[endoffset];
@@ -125,13 +128,13 @@ size_t Preferences::tagSize(size_t offset) {
   return endoffset - offset;
 }
 
-size_t Preferences::tagDataSize(size_t offset) {
+size_t Dictionary::tagDataSize(size_t offset) {
   size_t endoffset = offset;
   endoffset += strlen((const char*)&prefsData[endoffset]) + 1;
   return prefsData[endoffset];
 }
 
-size_t Preferences::findTag(tag_t tag) {
+size_t Dictionary::findTag(tag_t tag) {
   size_t offset = 0;
   while (offset < totalPrefsSize) {
     if (strcmp(tag, (const char*)&prefsData[offset]) == 0) {
@@ -145,24 +148,16 @@ size_t Preferences::findTag(tag_t tag) {
   }
 
   // went past the end of the data structure, we are corrupted.
-  resetPrefs();
+  reset();
   return 0;
 }
 
-size_t Preferences::used() {
+size_t Dictionary::used() {
   size_t offset = findTag(endTag);
   return offset + tagSize(offset);
 }
 
-void Preferences::saveOut() {
-  // this is brute force:
-  // todo - only write out the bytes that have changed
-  for (size_t i = 0; i < sizeof(prefsData); i++) {
-    EEPROM.write(i, prefsData[i]);
-  }
-}
-
-size_t Preferences::writeTag(size_t offset, tag_t tag, size_t size, const uint8_t* data) {
+size_t Dictionary::writeTag(size_t offset, tag_t tag, size_t size, const uint8_t* data) {
     if (size > MAX_TAG_SIZE) {
       return 0;
     }
@@ -178,7 +173,7 @@ size_t Preferences::writeTag(size_t offset, tag_t tag, size_t size, const uint8_
     return offset;
 }
 
-void Preferences::resetPrefs() {
+void EEPROMDictionary::reset() {
     // initial version tag is missing, clear out prefs
     size_t offset = 0;
     // write a version tag & 1 byte version
@@ -186,5 +181,30 @@ void Preferences::resetPrefs() {
 
     // write an end tag with the same 1 byte version
     offset = writeTag(offset, endTag, sizeof(version), &version);
-    saveOut();
+    save();
 }
+
+void EEPROMDictionary::save() {
+  // this is brute force:
+  // todo - only write out the bytes that have changed
+  for (size_t i = 0; i < totalPrefsSize; i++) {
+    EEPROM.write(i, prefsData[i]);
+  }
+}
+
+void EEPROMDictionary::load(uint8_t initVersion) {
+  version = initVersion;
+
+  // todo - only read in the bytes that have been used
+  for (size_t i = 0; i < totalPrefsSize; i++) {
+    prefsData[i] = EEPROM.read(i);
+  }
+
+  // check if prefs have been initialized
+  if (strcmp((const char*)versionTag, (const char*)prefsData) != 0 ||
+      prefsData[strlen(versionTag) + 1] != sizeof(version) ||
+      prefsData[strlen(versionTag) + 2] != version) {
+    reset();
+  }
+}
+
