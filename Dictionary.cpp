@@ -173,7 +173,7 @@ size_t Dictionary::writeTag(size_t offset, tag_t tag, size_t size, const uint8_t
     return offset;
 }
 
-void EEPROMDictionary::reset() {
+void Dictionary::reset() {
     // initial version tag is missing, clear out prefs
     size_t offset = 0;
     // write a version tag & 1 byte version

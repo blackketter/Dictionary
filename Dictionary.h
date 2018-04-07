@@ -16,6 +16,8 @@ class Dictionary {
     bool write(String& tag, String& data);
     size_t read(String& tag, String& data);
 
+    void reset();  // danger: this erases all the prefs
+
     uint8_t getVersion() { return version; }
     size_t used();  // returns total amount of space used
     size_t size() { return totalPrefsSize; }  // returns total size of prefs space
@@ -50,7 +52,6 @@ class EEPROMDictionary : public Dictionary {
   public:
     EEPROMDictionary() { totalPrefsSize = EEPROM_SIZE; prefsData = EEPromData; }
     void load(uint8_t initVersion = 1);  // 1 - default version
-    void reset();  // danger: this erases all the prefs
 
   protected:
     virtual void save();
