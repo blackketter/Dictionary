@@ -7,8 +7,7 @@ Dictionary::~Dictionary() {
   free(dictData);
 }
 
-void Dictionary::begin(uint8_t initVersion) {
-  version = initVersion;
+Dictionary::Dictionary() {
 }
 
 // entries are saved:
@@ -18,45 +17,56 @@ bool Dictionary::set(tag_t tag, size_t size, const uint8_t* data) {
 
   if (size > MAX_ENTRY_SIZE) { return false; }
 
-  bool changed = false;
-  size_t offset = findTag(tag);
+// initialize empty dict with end tag
+  if (dictData == nullptr) {
+    size_t endTagSize = strlen(endTag)+1+sizeof(datasize_t)+1;
+    dictData = (uint8_t*)malloc(endTagSize);
+    writeEndTag(0);
+  }
 
-  if (offset) {
+  bool changed = false;
+  bool append = false;
+  size_t offset;
+
+  if (findTag(tag, &offset)) {
     // found an old tag
     size_t oldDataSize = tagDataSize(offset);
+
     if (oldDataSize == size) {
       // same size so we can write in place
       writeTag(offset, tag, size, data);
       changed = true;
     } else {
-      if ((size-oldDataSize) > remaining()) {
-        if (!resize(used() - oldDataSize + size)) {
-          // not enough room to write
-          return false;
-        }
-      }
 
+      size_t newSize = used() - oldDataSize + size;
       // delete pref if the new size is not the same as the existing one
       deleteTag(offset);
+
+      if (!resize(newSize)) {
+        // not enough room to resize
+        return false;
+      }
+
       offset = 0;
       changed = true;
+      append = true;
     }
   } else {
     // need space for tag + nul char + one byte of size info + the actual data
     size_t spaceNeeded = strlen(tag) + 1 + sizeof(datasize_t) + size;
-    if (spaceNeeded > remaining()) {
-      if (!resize(used() + spaceNeeded)) {
-        // not enough room to write
-        return false;
-      }
+    if (!resize(used() + spaceNeeded)) {
+      // not enough room to write
+      return false;
     }
+    append = true;
   }
+
   // if it isn't already written and it has a size, we'll tack it on to the end
-  if (!offset && size) {
+  if (append && size) {
     // append to the end
-    offset = findTag(endTag);
+    findTag(endTag, &offset);
     offset = writeTag(offset, tag, size, data);
-    offset = writeTag(offset, endTag, sizeof(version), &version);
+    writeEndTag(offset);
     changed = true;
   }
 
@@ -71,10 +81,14 @@ bool Dictionary::set(String& tag, String& data) {
   return set(tag.c_str(), data.length()+1, (const uint8_t*)data.c_str());
 }
 
-size_t Dictionary::size(tag_t tag) {
-  size_t offset = findTag(tag);
+bool Dictionary::set(String& tag) {
+  return set(tag.c_str());
+}
 
-  if (offset) {
+size_t Dictionary::size(tag_t tag) {
+  size_t offset;
+
+  if (findTag(tag,&offset)) {
     return tagDataSize(offset);
   } else {
     return 0;  // not found
@@ -83,9 +97,9 @@ size_t Dictionary::size(tag_t tag) {
 
 size_t Dictionary::get(tag_t tag, size_t size, uint8_t* data) {
 
-  size_t offset = findTag(tag);
+  size_t offset;
 
-  if (offset) {
+  if (findTag(tag,&offset)) {
     offset += strlen(tag) + 1;
     size_t readSize = dictData[offset];
     offset++;
@@ -99,9 +113,9 @@ size_t Dictionary::get(tag_t tag, size_t size, uint8_t* data) {
 }
 
 size_t Dictionary::get(String& tag, String& data) {
-  size_t offset = findTag(tag.c_str());
+  size_t offset;
 
-  if (offset) {
+  if (findTag(tag.c_str(),&offset)) {
     offset += tag.length() + 1;
     offset++;
     data = (const char*) (&dictData[offset]);
@@ -117,13 +131,9 @@ size_t Dictionary::get(String& tag, String& data) {
 void Dictionary::deleteTag(size_t start) {
   // delete chosen tag and close the gap
 
-  // don't delete the version tag
-  if (start == 0) {
-    return;
-  }
-
   // close the gap
-  size_t end = findTag(endTag);
+  size_t end;
+  findTag(endTag, &end);
 
   size_t nextTag = tagSize(start) + start;
 
@@ -132,7 +142,6 @@ void Dictionary::deleteTag(size_t start) {
   if (nextTag <= end) {
     memmove(dictData+start, dictData+nextTag, len);
   }
-
 }
 
 size_t Dictionary::tagSize(size_t offset) {
@@ -153,31 +162,33 @@ size_t Dictionary::tagDataSize(size_t offset) {
   return dictData[endoffset];
 }
 
-// returns offset of data for a given tag, returns zero if not found
-size_t Dictionary::findTag(tag_t tag) {
-  if (dictData == nullptr) { return 0; }
+// returns offset of data for a given tag, returns true if found
+bool Dictionary::findTag(tag_t tag, size_t* offset) {
+  if (dictData == nullptr) { return false; }
 
-  size_t offset = 0;
-  while (offset < dictDataSize) {
-    if (strcmp(tag, (const char*)&dictData[offset]) == 0) {
-      return offset;
-    } else if (strcmp(endTag, (const char*)&dictData[offset]) == 0) {
-      return 0;  // hit the end tag, so it's not found
+  size_t o = 0;
+  while (1) {
+    if (strcmp(tag, (const char*)&dictData[o]) == 0) {
+      *offset = o;
+      return true;
+    } else if (strcmp(endTag, (const char*)&dictData[o]) == 0) {
+      return false;  // hit the end tag, so it's not found
     } else {
-      offset += strlen((const char*)&dictData[offset]) + 1;
-      offset += dictData[offset] + 1;
+      o += strlen((const char*)&dictData[o]) + 1;
+      o += dictData[o] + 1;
     }
   }
 
   // went past the end of the data structure, we are corrupted.
   reset();
-  return 0;
+  return false;
 }
 
 // total amount of dictData used
 size_t Dictionary::used() {
   if (dictData == nullptr) { return 0; }
-  size_t offset = findTag(endTag);
+  size_t offset;
+  findTag(endTag, &offset);
   return offset + tagSize(offset);
 }
 
@@ -199,18 +210,8 @@ size_t Dictionary::writeTag(size_t offset, tag_t tag, size_t size, const uint8_t
 
 void Dictionary::reset() {
     // initial version tag is missing, clear out data
-    size_t offset = 0;
-
     free(dictData);
     dictData = nullptr;
-    dictDataSize = 0;
-
-    // write a version tag
-    offset = writeTag(offset, versionTag, sizeof(version), &version);
-
-    // write an end tag with the same 1 byte version
-    offset = writeTag(offset, endTag, sizeof(version), &version);
-    save();
 }
 
 bool Dictionary::resize(size_t newSize) {
@@ -218,41 +219,52 @@ bool Dictionary::resize(size_t newSize) {
 
   if (newData) {
     dictData = newData;
-    dictDataSize = newSize;
   }
 
   return newData != nullptr;
+}
+
+void Dictionary::writeEndTag(size_t offset) {
+  uint8_t data = 0;
+  writeTag(offset, endTag, sizeof(data), &data);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 // EEPROMDictionary
 
 EEPROMDictionary::EEPROMDictionary() {
-  dictDataSize = EEPROM_SIZE;
-  dictData = EEPromData;
+  dictData = EEPROMData;
 }
 
 void EEPROMDictionary::save() {
   // this is brute force:
   // todo - only write out the bytes that have changed
-  for (size_t i = 0; i < dictDataSize; i++) {
+  for (size_t i = 0; i < EEPROM_SIZE; i++) {
     EEPROM.write(i, dictData[i]);
   }
 }
 
-void EEPROMDictionary::begin(uint8_t initVersion) {
-  version = initVersion;
-
+void EEPROMDictionary::load() {
   // todo - only read in the bytes that have been used
-  for (size_t i = 0; i < dictDataSize; i++) {
+  for (size_t i = 0; i < EEPROM_SIZE; i++) {
     dictData[i] = EEPROM.read(i);
   }
 
   // check if Dict have been initialized
   if (strcmp((const char*)versionTag, (const char*)dictData) != 0 ||
-      dictData[strlen(versionTag) + 1] != sizeof(version) ||
-      dictData[strlen(versionTag) + 2] != version) {
+      dictData[strlen(versionTag) + 1] != sizeof(_version) ||
+      dictData[strlen(versionTag) + 2] != _version) {
     reset();
   }
+}
+
+void EEPROMDictionary::reset() {
+    // initial version tag is missing, clear out data
+    size_t offset = 0;
+
+    // write a version tag
+    offset = writeTag(offset, versionTag, sizeof(_version), &_version);
+    writeEndTag(offset);
+    save();
 }
 
