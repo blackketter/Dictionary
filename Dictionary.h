@@ -60,7 +60,7 @@ class EEPROMDictionary : public Dictionary {
     size_t remaining() { return EEPROM_SIZE - used(); }
 
   protected:
-    virtual bool resize(size_t newSize) { return false; }  // we can't resize the flash area
+    virtual bool resize(size_t newSize) { return newSize <= EEPROM_SIZE; }
     virtual void save();
     const uint8_t _version = 1;
 
